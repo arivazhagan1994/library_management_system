@@ -371,7 +371,7 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Row([
                                 ft.Column([
-                                    ft.Text("Namaskar,", size=14, color=ft.Colors.GREY_600),
+                                    ft.Text("Welcome,", size=14, color=ft.Colors.GREY_600),
                                     ft.Text(user_name, size=20, weight=ft.FontWeight.BOLD),
                                 ]),
                                 ft.Icon(ft.Icons.ACCOUNT_CIRCLE, size=36, color=ft.Colors.DEEP_PURPLE)
