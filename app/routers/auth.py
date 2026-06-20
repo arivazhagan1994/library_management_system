@@ -1,3 +1,4 @@
+# app/routers/auth.py
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.database import get_collection
@@ -9,11 +10,12 @@ import re
 import jwt
 import os
 
-router = APIRouter(prefix="/auth", tags=["Secure Gateway"])
+# Clean Initialization: No hidden prefix argument
+router = APIRouter(tags=["Secure Gateway"])
 IST = ZoneInfo("Asia/Kolkata")
 
 load_dotenv()
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fallback_secret_key_for_safety")
 ALGORITHM = "HS256"
 
 class LibrarianLogin(BaseModel):
@@ -35,16 +37,16 @@ class OTPVerify(BaseModel):
     identifier: str
     otp_code: str = Field(..., min_length=6, max_length=6)
 
-@router.post("/login/librarian")
+# 🟢 Absolute Explicit URL Path Strings
+@router.post("/auth/login/librarian")
 async def librarian_login(payload: LibrarianLogin):
     if payload.email == "admin@vathiyar.com" and payload.password == "admin1234":
         token = jwt.encode({"sub": "admin", "role": "librarian"}, SECRET_KEY, algorithm=ALGORITHM)
         return {"access_token": token, "role": "librarian", "name": "Head Librarian"}
     raise HTTPException(status_code=401, detail="Invalid Librarian email or password.")
 
-@router.post("/student/request-otp")
+@router.post("/auth/student/request-otp")
 async def request_student_otp(payload: OTPRequest):
-    # Localized collection initialization
     students_col = get_collection("students")
     otp_col = get_collection("otp_cache")
 
@@ -54,7 +56,7 @@ async def request_student_otp(payload: OTPRequest):
 
     if not student:
         raise HTTPException(status_code=404, detail="Student credentials not found in library register.")
-        
+    
     generated_otp = str(random.randint(100000, 999999))
 
     await otp_col.update_one(
@@ -67,12 +69,11 @@ async def request_student_otp(payload: OTPRequest):
         upsert=True
     )
 
-    print(f"[SMS GATEWAY MOCK] Sending OTP {generated_otp} to {payload.identifier}")
+    print(f"\n[SMS GATEWAY MOCK] 🔥 Live Verification OTP: {generated_otp} for student: {payload.identifier}\n")
     return {"message": "OTP generated and transmitted successfully!", "mock_otp": generated_otp}
 
-@router.post("/student/verify-otp")
+@router.post("/auth/student/verify-otp")
 async def verify_student_otp(payload: OTPVerify):
-    # Localized collection initialization
     students_col = get_collection("students")
     otp_col = get_collection("otp_cache")
 
@@ -90,6 +91,7 @@ async def verify_student_otp(payload: OTPVerify):
     token_payload = {
         "sub": student["Roll No"],
         "role": "student",
+        "name": student["Name"],
         "exp": datetime.now(IST) + timedelta(days=7)
     }
     encoded_jwt = jwt.encode(token_payload, SECRET_KEY, algorithm=ALGORITHM)
