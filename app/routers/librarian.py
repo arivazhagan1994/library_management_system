@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import re
 
-# Clean Initialization: No hidden prefix argument
+# Initialize the router context cleanly
 router = APIRouter(tags=["Librarian Operations"])
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -33,13 +33,13 @@ class BookIssue(BaseModel):
             raise ValueError("Student phone must be exactly 10 digits.")
         return value
 
-# 🟢 Absolute Explicit URL Path Strings
-@router.post("/librarian/books", status_code=status.HTTP_201_CREATED)
+# --- ENDPOINTS ---
+@router.post("/books", status_code=status.HTTP_201_CREATED)
 async def add_new_book(book_data: BookCreate):
     books_collection = get_collection("books")
     existing_book = await books_collection.find_one({"isbn": book_data.isbn})
     if existing_book:
-        raise HTTPException(status_code=400, detail="A book with this ISBN already exists in stock.")
+        raise HTTPException(status_code=400, detail="A book with this ISBN already exists.")
     
     new_book = {
         "title": book_data.title,
@@ -50,14 +50,14 @@ async def add_new_book(book_data: BookCreate):
     await books_collection.insert_one(new_book)
     return {"message": f"Successfully stored '{book_data.title}' into inventory!"}
 
-@router.get("/librarian/books")
+@router.get("/books")
 async def view_available_stock():
     books_collection = get_collection("books")
     cursor = books_collection.find({}, {"_id": 0})
     books_list = await cursor.to_list(length=100)  
     return {"total_available": len(books_list), "books": books_list}
 
-@router.post("/librarian/issue")
+@router.post("/issue")
 async def issue_book_to_student(payload: BookIssue):
     books_collection = get_collection("books")
     issued_collection = get_collection("issued_books")
@@ -65,11 +65,26 @@ async def issue_book_to_student(payload: BookIssue):
 
     book = await books_collection.find_one({"isbn": payload.isbn})
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found in available library stock.")
+        raise HTTPException(status_code=404, detail="Book not found in library stock.")
+    if not book.get("available", True):
+        raise HTTPException(
+            status_code=400,
+            detail="Book is already issued."
+        )
     
     student = await students_collection.find_one({"Phone": payload.student_phone})
     if not student:
-        raise HTTPException(status_code=404, detail="Student is not registered in the system.")
+        raise HTTPException(status_code=404, detail="Student is not registered.")
+    existing_loan = await issued_collection.find_one({
+        "isbn": payload.isbn,
+        "returned": False
+    })
+
+    if existing_loan:
+        raise HTTPException(
+            status_code=400,
+            detail="Book already issued."
+        )
     
     issue_date = datetime.now(IST)
     due_date = issue_date + timedelta(days=15)
@@ -78,13 +93,30 @@ async def issue_book_to_student(payload: BookIssue):
         "title": book["title"],
         "author": book["author"],
         "isbn": book["isbn"],
+
         "student_name": student["Name"],
         "student_phone": student["Phone"],
+
         "issued_date": issue_date,
         "due_date": due_date,
+
+        "returned": False,
+        "returned_date": None,
+
         "renewal_count": 0
     }
-    
     await issued_collection.insert_one(loan_record)
-    await books_collection.delete_one({"isbn": payload.isbn})
-    return {"message": "Book issued successfully!", "due_date": due_date.strftime("%Y-%m-%d")}
+    await books_collection.update_one(
+        {"isbn": payload.isbn},
+        {
+            "$set": {
+                "available": False
+            }
+        }
+    )
+    return {
+        "message": "Book issued successfully!",
+        "student": student["Name"],
+        "book": book["title"],
+        "due_date": due_date.strftime("%Y-%m-%d")
+    }

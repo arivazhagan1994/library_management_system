@@ -45,6 +45,16 @@ def main(page: ft.Page):
     # --- LIVE BACKEND NETWORK LINK MECHANICS ---
     BACKEND_URL = "http://127.0.0.1:8000"
 
+    def get_books():
+        try:
+            response = requests.get(f"{BACKEND_URL}/librarian/books")
+            if response.status_code == 200:
+                return response.json().get("books", [])
+            return []
+        except Exception as e:
+            print(f"[FETCH ERROR] Could not stream database inventory: {e}")
+            return []
+
     def trigger_librarian_login(e):
         payload = {
             "email": lib_email.value.strip(),
@@ -129,6 +139,28 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
+    # --- WEB-SAFE COMPATIBLE LOGOUT CONTROLLER ---
+    def trigger_logout(e):
+        page.session.store.clear()
+        lib_email.value = ""
+        lib_pass.value = ""
+        student_id.value = ""
+        student_id.disabled = False
+        student_otp.value = ""
+        student_otp.visible = False
+        
+        action_button.content = "Request Verification OTP"
+        action_button.on_click = trigger_student_otp_request
+        
+        page.controls.clear()
+        page.window_width = 400
+        page.window_height = 600
+        
+        page.add(login_card)
+        show_success_toast("Successfully logged out safely. Token cache destroyed.")
+        page.update()
+
+    # --- WORKSPACE DASHBOARD ENGINE ---
     def launch_mock_dashboard(title_text):
         user_role = page.session.store.get("role")
         user_name = page.session.store.get("name")
@@ -140,6 +172,161 @@ def main(page: ft.Page):
             page.window_width = 1200
             page.window_height = 800
             
+            # Master Centralized Workspace Content Shell
+            workspace_deck = ft.Container(
+                expand=True,
+                padding=30,
+                bgcolor=ft.Colors.WHITE,
+                border_radius=ft.BorderRadius.only(top_right=16, bottom_right=16)
+            )
+
+            # 🛠️ VIEW 1: LIVE INVENTORY STOCK LAYOUT ARCHITECTURE
+            def display_inventory_stock_screen(e=None):
+                books = get_books()
+                book_rows = []
+                
+                for book in books:
+                    is_available = book.get("available", True)
+                    book_rows.append(
+                        ft.DataRow(
+                            cells=[
+                                ft.DataCell(ft.Text(book.get("title", ""))),
+                                ft.DataCell(ft.Text(book.get("author", ""))),
+                                ft.DataCell(ft.Text(book.get("isbn", ""))),
+                                ft.DataCell(
+                                    ft.Text(
+                                        "Available" if is_available else "Issued",
+                                        color=ft.Colors.GREEN_700 if is_available else ft.Colors.RED_700
+                                    )
+                                )
+                            ]
+                        )
+                    )
+
+                workspace_deck.content = ft.Column([
+                    ft.Text("Library Control Center", size=26, weight=ft.FontWeight.BOLD),
+                    ft.Text("Manage inventory allocations and check real-time transaction tracking analytics.", color=ft.Colors.GREY_600),
+                    ft.Container(height=20),
+                    ft.DataTable(
+                        border=ft.Border.all(width=1, color=ft.Colors.GREY_200),
+                        heading_row_color=ft.Colors.BLUE_GREY_50,
+                        columns=[
+                            ft.DataColumn(ft.Text("Book Title")),
+                            ft.DataColumn(ft.Text("Author")),
+                            ft.DataColumn(ft.Text("ISBN ID")),
+                            ft.DataColumn(ft.Text("Availability Status")),
+                        ],
+                        rows=book_rows
+                    )
+                ], scroll=ft.ScrollMode.AUTO, expand=True)
+                page.update()
+
+            # 🛠️ VIEW 2: MODERNE & FLEXIBLE LIVE BOOK ISSUE ENGINE
+            def display_issue_book_screen(e=None):
+                student_phone = ft.TextField(
+                    label="Student Phone Number",
+                    prefix_icon=ft.Icons.PHONE,
+                    border_radius=8,
+                    width=400,
+                    hint_text="Enter registered 10-digit number"
+                )
+
+                isbn_field = ft.TextField(
+                    label="Target Book ISBN",
+                    prefix_icon=ft.Icons.QR_CODE,
+                    border_radius=8,
+                    width=400,
+                    hint_text="Enter exactly 5 numeric digits"
+                )
+
+                status_banner = ft.Container(visible=False, padding=15, border_radius=8, width=400)
+                status_text = ft.Text(weight=ft.FontWeight.W_500)
+                status_banner.content = status_text
+
+                def execute_backend_allocation(event):
+                    # Frontend input validation pre-check
+                    if not student_phone.value.strip() or not isbn_field.value.strip():
+                        status_banner.bgcolor = ft.Colors.RED_50
+                        status_text.value = "⚠️ Form Incomplete: Please provide phone number and ISBN fields."
+                        status_text.color = ft.Colors.RED_700
+                        status_banner.visible = True
+                        page.update()
+                        return
+
+                    payload = {
+                        "student_phone": student_phone.value.strip(),
+                        "isbn": isbn_field.value.strip()
+                    }
+
+                    try:
+                        response = requests.post(f"{BACKEND_URL}/librarian/issue", json=payload)
+                        data = response.json()
+
+                        if response.status_code == 200:
+                            status_banner.bgcolor = ft.Colors.GREEN_50
+                            status_text.value = (
+                                f"✅ Book Allocation Successful!\n\n"
+                                f"📖 Book Title: {data.get('book')}\n"
+                                f"👤 Student Holder: {data.get('student')}\n"
+                                f"📅 Library Return Due: {data.get('due_date')}"
+                            )
+                            status_text.color = ft.Colors.GREEN_700
+                            
+                            # Clean fields for immediate next transaction
+                            student_phone.value = ""
+                            isbn_field.value = ""
+                        else:
+                            status_banner.bgcolor = ft.Colors.RED_50
+                            status_text.value = f"❌ Allocation Rejected: {data.get('detail', 'Invalid Transaction Blueprint')}"
+                            status_text.color = ft.Colors.RED_700
+
+                        status_banner.visible = True
+                        page.update()
+
+                    except Exception as ex:
+                        status_banner.bgcolor = ft.Colors.RED_50
+                        status_text.value = f"🔌 Cluster Communication Broken: {str(ex)}"
+                        status_text.color = ft.Colors.RED_700
+                        status_banner.visible = True
+                        page.update()
+
+                # Dynamic layout mount inside workspace deck
+                workspace_deck.content = ft.Container(
+                    content=ft.Column([
+                        ft.Text("Circulation Allocation Engine", size=26, weight=ft.FontWeight.BOLD),
+                        ft.Text("Issue available physical asset records to active, registered students smoothly.", color=ft.Colors.GREY_600),
+                        ft.Container(height=15),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("Secure Asset Handshake Form", weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.BLUE_GREY_700),
+                                ft.Divider(color=ft.Colors.GREY_100),
+                                student_phone,
+                                isbn_field,
+                                ft.Container(height=5),
+                                ft.ElevatedButton(
+                                    content=ft.Row([
+                                        ft.Icon(ft.Icons.ASSIGNMENT_TURNED_IN, color=ft.Colors.WHITE, size=18),
+                                        ft.Text("Deploy Live Loan Allocation", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD)
+                                    ], alignment=ft.MainAxisAlignment.CENTER),
+                                    bgcolor=ft.Colors.DEEP_PURPLE,
+                                    height=48,
+                                    width=400,
+                                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                                    on_click=execute_backend_allocation
+                                ),
+                                status_banner
+                            ], spacing=15),
+                            padding=25,
+                            bgcolor=ft.Colors.WHITE,
+                            border_radius=12,
+                            border=ft.Border.all(width=1, color=ft.Colors.GREY_200)
+                        )
+                    ], spacing=10),
+                    expand=True
+                )
+                page.update()
+
+            # Side Navigation Panel Setup mapping reactive execution triggers
             sidebar = ft.Container(
                 content=ft.Column([
                     ft.Row([
@@ -148,12 +335,11 @@ def main(page: ft.Page):
                     ]),
                     ft.Text(f"Active: {user_name}", color=ft.Colors.DEEP_PURPLE_200, size=12),
                     ft.Divider(color=ft.Colors.DEEP_PURPLE_700),
-                    ft.Button(content="Inventory Stock", icon=ft.Icons.MENU_BOOK, color=ft.Colors.WHITE, bgcolor=ft.Colors.TRANSPARENT),
-                    ft.Button(content="Issue Engine", icon=ft.Icons.OUTPUT, color=ft.Colors.WHITE, bgcolor=ft.Colors.TRANSPARENT),
+                    ft.Button(content="Inventory Stock", icon=ft.Icons.MENU_BOOK, color=ft.Colors.WHITE, bgcolor=ft.Colors.TRANSPARENT, on_click=display_inventory_stock_screen),
+                    ft.Button(content="Issue Engine", icon=ft.Icons.OUTPUT, color=ft.Colors.WHITE, bgcolor=ft.Colors.TRANSPARENT, on_click=display_issue_book_screen),
                     ft.Button(content="Active Loans", icon=ft.Icons.ASSIGNMENT, color=ft.Colors.WHITE, bgcolor=ft.Colors.TRANSPARENT),
                     ft.Divider(color=ft.Colors.DEEP_PURPLE_700),
-                    # ✅ FIXED: Changed page.window_close() to modern page.window.close() API
-                    ft.Button(content="Exit Safely", icon=ft.Icons.LOGOUT, color=ft.Colors.RED_200, bgcolor=ft.Colors.TRANSPARENT, on_click=lambda e: page.window.close())
+                    ft.Button(content="Exit Safely", icon=ft.Icons.LOGOUT, color=ft.Colors.RED_200, bgcolor=ft.Colors.TRANSPARENT, on_click=trigger_logout)
                 ], spacing=15),
                 width=240,
                 bgcolor=ft.Colors.DEEP_PURPLE_900,
@@ -161,44 +347,7 @@ def main(page: ft.Page):
                 border_radius=ft.BorderRadius.only(top_left=16, bottom_left=16)
             )
             
-            workspace_deck = ft.Container(
-                expand=True,
-                padding=30,
-                bgcolor=ft.Colors.WHITE,
-                border_radius=ft.BorderRadius.only(top_right=16, bottom_right=16),
-                content=ft.Column([
-                    ft.Text("Library Control Center", size=26, weight=ft.FontWeight.BOLD),
-                    ft.Text("Manage inventory allocations and check real-time transaction tracking analytics.", color=ft.Colors.GREY_600),
-                    ft.Container(height=20),
-                    
-                    ft.DataTable(
-                        border=ft.Border.all(width=1, color=ft.Colors.GREY_200),
-                        border_radius=8,
-                        heading_row_color=ft.Colors.BLUE_GREY_50,
-                        columns=[
-                            ft.DataColumn(ft.Text("Book Title")),
-                            ft.DataColumn(ft.Text("Author")),
-                            ft.DataColumn(ft.Text("ISBN ID")),
-                            ft.DataColumn(ft.Text("Availability Status")),
-                        ],
-                        rows=[
-                            ft.DataRow(cells=[
-                                ft.DataCell(ft.Text("Core Python Systemics")),
-                                ft.DataCell(ft.Text("Dr. K. Vathiyar")),
-                                ft.DataCell(ft.Text("10024")),
-                                ft.DataCell(ft.Text("In Stock", color=ft.Colors.GREEN_700))
-                            ]),
-                            ft.DataRow(cells=[
-                                ft.DataCell(ft.Text("Asynchronous API Mastery")),
-                                ft.DataCell(ft.Text("Architect Arivazhagan")),
-                                ft.DataCell(ft.Text("55462")),
-                                ft.DataCell(ft.Text("Issued Out", color=ft.Colors.RED_700))
-                            ])
-                        ]
-                    )
-                ], expand=True)
-            )
-            
+            # Mount Core Panel Components Combo Container
             page.add(
                 ft.Container(
                     content=ft.Row([sidebar, workspace_deck], spacing=0, expand=True),
@@ -207,6 +356,9 @@ def main(page: ft.Page):
                     shadow=ft.BoxShadow(blur_radius=20, color="#1B000000")
                 )
             )
+            
+            # Initial default route initialization on successful dashboard load
+            display_inventory_stock_screen()
 
         # --- PATH B: STUDENT PORTABLE SMARTPHONE ENVIRONMENT ---
         else:
@@ -234,9 +386,10 @@ def main(page: ft.Page):
                         ft.Container(height=10),
                         
                         ft.Card(
-                            color=ft.Colors.WHITE,
                             content=ft.Container(
+                                bgcolor=ft.Colors.WHITE,
                                 padding=15,
+                                border_radius=10,
                                 content=ft.Column([
                                     ft.Text("Your Active Checked-Out Items", weight=ft.FontWeight.BOLD, size=14),
                                     ft.Divider(),
@@ -244,20 +397,18 @@ def main(page: ft.Page):
                                         ft.Icon(ft.Icons.BOOK, color=ft.Colors.DEEP_PURPLE_400, size=20),
                                         ft.Column([
                                             ft.Text("Asynchronous API Mastery", weight=ft.FontWeight.W_500),
-                                            ft.Text("Return Due: 15 Days | No Penalties", color=ft.Colors.GREEN_700, size=12)
-                                        ])
-                                    ])
+                                            ft.Text("Return Due: 15 Days | No Penalties", color=ft.Colors.GREEN_700, size=12),
+                                        ]),
+                                    ]),
                                 ])
-                            )
+                            ),
                         ),
                         ft.Container(expand=True),
-                        # ✅ FIXED: Changed page.window_close() to modern page.window.close() API
-                        ft.Button(content="Log Out Safely from Account", icon=ft.Icons.POWER_SETTINGS_NEW, on_click=lambda e: page.window.close(), bgcolor=ft.Colors.RED_50, color=ft.Colors.RED_700, width=360)
+                        ft.Button(content="Log Out Safely from Account", icon=ft.Icons.POWER_SETTINGS_NEW, on_click=trigger_logout, bgcolor=ft.Colors.RED_50, color=ft.Colors.RED_700, width=360)
                     ], spacing=10),
                     expand=True
                 )
             )
-            
         page.update()
 
     # --- UI CONTAINERS ---
