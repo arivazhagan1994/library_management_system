@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException,status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.database import get_collection
 from datetime import datetime, timedelta
@@ -10,9 +10,6 @@ import jwt
 import os
 
 router = APIRouter(prefix="/auth", tags=["Secure Gateway"])
-
-students_col = get_collection("students")
-otp_col  = get_collection("otp_cache")
 IST = ZoneInfo("Asia/Kolkata")
 
 load_dotenv()
@@ -30,17 +27,16 @@ class OTPRequest(BaseModel):
     @classmethod
     def clean_identifier(cls, v: str):
         v = v.strip()
-
         if not (re.fullmatch(r"^[0-9]{10}$", v) or re.fullmatch(r"^GUVIDS[0-9]{4}$", v)):
             raise ValueError("Input must be a valid 10-digit mobile number or GUVIDS roll number.")
         return v
+
 class OTPVerify(BaseModel):
     identifier: str
     otp_code: str = Field(..., min_length=6, max_length=6)
 
 @router.post("/login/librarian")
 async def librarian_login(payload: LibrarianLogin):
-    # For a simple corporate setup, we can check against master admin credentials
     if payload.email == "admin@vathiyar.com" and payload.password == "admin1234":
         token = jwt.encode({"sub": "admin", "role": "librarian"}, SECRET_KEY, algorithm=ALGORITHM)
         return {"access_token": token, "role": "librarian", "name": "Head Librarian"}
@@ -48,16 +44,21 @@ async def librarian_login(payload: LibrarianLogin):
 
 @router.post("/student/request-otp")
 async def request_student_otp(payload: OTPRequest):
+    # Localized collection initialization
+    students_col = get_collection("students")
+    otp_col = get_collection("otp_cache")
+
     student = await students_col.find_one({
-        "$or": [{"Phone":payload.identifier},{"Roll No": payload.identifier}]
+        "$or": [{"Phone": payload.identifier}, {"Roll No": payload.identifier}]
     })
 
     if not student:
         raise HTTPException(status_code=404, detail="Student credentials not found in library register.")
+        
     generated_otp = str(random.randint(100000, 999999))
 
     await otp_col.update_one(
-        {"identifier":payload.identifier},
+        {"identifier": payload.identifier},
         {"$set": {
             "otp": generated_otp,
             "created_at": datetime.now(IST),
@@ -71,21 +72,21 @@ async def request_student_otp(payload: OTPRequest):
 
 @router.post("/student/verify-otp")
 async def verify_student_otp(payload: OTPVerify):
-    # Fetch the live OTP from cache
+    # Localized collection initialization
+    students_col = get_collection("students")
+    otp_col = get_collection("otp_cache")
+
     cached_record = await otp_col.find_one({"identifier": payload.identifier})
     
     if not cached_record or cached_record["otp"] != payload.otp_code:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP token.")
 
-    # Fetch full student profile details to sign the payload token
     student = await students_col.find_one({
         "$or": [{"Phone": payload.identifier}, {"Roll No": payload.identifier}]
     })
 
-    # Erase the OTP immediately upon successful use to save RAM space
     await otp_col.delete_one({"identifier": payload.identifier})
 
-    # Generate a secure stateless access token valid for 7 days
     token_payload = {
         "sub": student["Roll No"],
         "role": "student",
@@ -94,4 +95,3 @@ async def verify_student_otp(payload: OTPVerify):
     encoded_jwt = jwt.encode(token_payload, SECRET_KEY, algorithm=ALGORITHM)
 
     return {"access_token": encoded_jwt, "role": "student", "name": student["Name"]}
-
